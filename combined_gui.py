@@ -1,68 +1,54 @@
-# gui.py
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image, ImageTk
 import cv2
-import numpy as np
 from ultralytics import YOLO
-import os
 from util import read_license_plate
 
-# ------------------ MODEL ------------------
+# ---- MODEL ----
 model = YOLO("license_plate_detector.pt")
 
-# ------------------ WINDOW ------------------
+# ---- WINDOW ----
 root = tk.Tk()
-root.title("Smart Parking System | License Plate Recognition")
-root.geometry("1050x720")
-root.configure(bg="#121212")
+root.title("Automatic License Plate Recognition")
+root.geometry("1000x650")
+root.configure(bg="#F8FAFC")
 root.resizable(False, False)
 
-# ------------------ STYLES ------------------
-BG = "#121212"
-CARD = "#1E1E1E"
-ACCENT = "#00ADB5"
-TEXT = "#EEEEEE"
-MUTED = "#AAAAAA"
-SUCCESS = "#4CAF50"
-ERROR = "#F44336"
-WARNING = "#FFA726"
+# ---- COLORS ----
+BG = "#F8FAFC"
+CARD = "#FFFFFF"
+PRIMARY = "#2563EB"
+SECONDARY = "#0EA5E9"
+TEXT = "#0F172A"
+MUTED = "#64748B"
+ERROR = "#DC2626"
 
-FONT_TITLE = ("Segoe UI", 22, "bold")
+# ---- FONTS ----
+FONT_TITLE = ("Segoe UI", 24, "bold")
 FONT_SUB = ("Segoe UI", 11)
 FONT_BTN = ("Segoe UI", 12, "bold")
-FONT_RES = ("Consolas", 14, "bold")
+FONT_RES = ("Consolas", 18, "bold")
 
-# ------------------ PATHS ------------------
-os.makedirs("results", exist_ok=True)
-DB_FILE = "results/registered_plates.txt"
-
-# ------------------ STATE ------------------
+# ---- STATE ----
 selected_image_path = ""
-current_plate = None
-current_crop = None
-current_conf = 0.0
 
-# ------------------ DB FUNCTIONS ------------------
-def load_registered_plates():
-    if not os.path.exists(DB_FILE):
-        return set()
-    with open(DB_FILE, "r") as f:
-        return set(line.strip() for line in f if line.strip())
+# ---- BUTTON STYLE ----
+def styled_button(parent, text, cmd):
+    return tk.Button(
+        parent, text=text, command=cmd,
+        bg=PRIMARY, fg="white",
+        font=FONT_BTN,
+        relief="flat",
+        width=22,
+        activebackground=SECONDARY
+    )
 
-def save_plate_to_db(plate):
-    plates = load_registered_plates()
-    if plate in plates:
-        return False
-    with open(DB_FILE, "a") as f:
-        f.write(plate + "\n")
-    return True
-
-# ------------------ IMAGE SELECT ------------------
+# ---- IMAGE SELECT ----
 def select_image():
     global selected_image_path
     path = filedialog.askopenfilename(
-        filetypes=[("Image Files", "*.jpg *.png *.jpeg")]
+        filetypes=[("Images", "*.jpg *.png *.jpeg")]
     )
     if not path:
         return
@@ -72,52 +58,28 @@ def select_image():
     img_tk = ImageTk.PhotoImage(img)
     image_panel.config(image=img_tk)
     image_panel.image = img_tk
+    status_label.config(text="Image Loaded Successfully", fg=PRIMARY)
 
-    status_label.config(text="Image Loaded Successfully", fg=SUCCESS)
-    result_label.config(text="---", fg=TEXT)
-    conf_label.config(text="Confidence: 0.00")
-    crop_panel.config(image="")
-    register_btn.config(state="disabled")
-
-# ------------------ DETECT ------------------
+# ---- DETECT ----
 def detect_plate():
-    global current_plate, current_crop, current_conf
-
     if not selected_image_path:
         status_label.config(text="Please select an image first", fg=ERROR)
         return
 
     img = cv2.imread(selected_image_path)
     results = model(img)[0]
-    detections = results.boxes.data.tolist()
+    boxes = results.boxes.data.tolist()
 
-    if not detections:
+    if not boxes:
         status_label.config(text="No License Plate Detected", fg=ERROR)
         return
 
-    x1, y1, x2, y2, score, cls = detections[0]
-    h, w = img.shape[:2]
-    pad = int(min(h, w) * 0.03)
-
-    crop = img[
-        max(0, int(y1 - pad)) : min(h, int(y2 + pad)),
-        max(0, int(x1 - pad)) : min(w, int(x2 + pad))
-    ]
+    x1, y1, x2, y2, _, _ = boxes[0]
+    crop = img[int(y1):int(y2), int(x1):int(x2)]
 
     text, conf = read_license_plate(crop)
 
-    current_plate = text
-    current_crop = crop
-    current_conf = conf
-
-    if not text:
-        result_label.config(text="NOT FOUND", fg=ERROR)
-        conf_label.config(text="Confidence: 0.00")
-        status_label.config(text="Plate could not be recognized", fg=ERROR)
-        register_btn.config(state="disabled")
-        return
-
-    result_label.config(text=text, fg=SUCCESS)
+    result_label.config(text=text)
     conf_label.config(text=f"Confidence: {conf:.2f}")
 
     crop_img = Image.fromarray(
@@ -127,58 +89,19 @@ def detect_plate():
     crop_panel.config(image=crop_tk)
     crop_panel.image = crop_tk
 
-    plates_db = load_registered_plates()
+    status_label.config(text="License Plate Detected Successfully", fg=PRIMARY)
 
-    if text in plates_db:
-        status_label.config(
-            text="Vehicle Allowed ✔ Already Registered",
-            fg=SUCCESS
-        )
-        register_btn.config(state="disabled")
-    else:
-        status_label.config(
-            text="New Vehicle Detected ⚠ Click Register",
-            fg=WARNING
-        )
-        register_btn.config(state="normal")
+# ---- UI ----
+tk.Label(root, text="AUTOMATIC LICENSE PLATE RECOGNITION",
+         font=FONT_TITLE, bg=BG, fg=PRIMARY).pack(pady=15)
 
-# ------------------ REGISTER ------------------
-def register_vehicle():
-    if not current_plate:
-        return
-
-    success = save_plate_to_db(current_plate)
-
-    if success:
-        status_label.config(
-            text="Vehicle Registered Successfully ✅",
-            fg=SUCCESS
-        )
-        register_btn.config(state="disabled")
-    else:
-        status_label.config(
-            text="Duplicate Plate ❌ Registration Blocked",
-            fg=ERROR
-        )
-
-# ------------------ UI ------------------
-header = tk.Label(root, text="SMART PARKING SYSTEM",
-                  font=FONT_TITLE, bg=BG, fg=ACCENT)
-header.pack(pady=15)
-
-subtitle = tk.Label(
-    root,
-    text="Automatic License Plate Detection & Recognition",
-    font=FONT_SUB,
-    bg=BG,
-    fg=MUTED
-)
-subtitle.pack()
+tk.Label(root, text="Vehicle Number Detection using Deep Learning",
+         font=FONT_SUB, bg=BG, fg=MUTED).pack()
 
 main = tk.Frame(root, bg=BG)
-main.pack(pady=20)
+main.pack(pady=25)
 
-# LEFT
+# ---- LEFT ----
 left = tk.Frame(main, bg=CARD, width=450, height=420)
 left.grid(row=0, column=0, padx=20)
 left.pack_propagate(False)
@@ -186,61 +109,32 @@ left.pack_propagate(False)
 image_panel = tk.Label(left, bg=CARD)
 image_panel.pack(pady=20)
 
-btn_select = tk.Button(
-    left, text="Select Vehicle Image",
-    font=FONT_BTN, bg=ACCENT, fg="black",
-    relief="flat", width=22,
-    command=select_image
-)
-btn_select.pack(pady=15)
+styled_button(left, "Select Image", select_image).pack(pady=10)
 
-# RIGHT
+# ---- RIGHT ----
 right = tk.Frame(main, bg=CARD, width=450, height=420)
 right.grid(row=0, column=1, padx=20)
 right.pack_propagate(False)
 
-plate_title = tk.Label(
-    right, text="DETECTED PLATE",
-    font=FONT_SUB, bg=CARD, fg=MUTED
-)
-plate_title.pack(pady=(25, 5))
+tk.Label(right, text="DETECTED LICENSE PLATE",
+         bg=CARD, fg=MUTED).pack(pady=10)
 
-result_label = tk.Label(
-    right, text="---",
-    font=FONT_RES, bg=CARD, fg=TEXT
-)
+result_label = tk.Label(right, text="---",
+                        font=FONT_RES,
+                        bg=CARD, fg=TEXT)
 result_label.pack()
 
-conf_label = tk.Label(
-    right, text="Confidence: 0.00",
-    font=FONT_SUB, bg=CARD, fg=MUTED
-)
-conf_label.pack(pady=5)
+conf_label = tk.Label(right, text="Confidence: 0.00",
+                      bg=CARD, fg=MUTED)
+conf_label.pack()
 
 crop_panel = tk.Label(right, bg=CARD)
-crop_panel.pack(pady=15)
+crop_panel.pack(pady=10)
 
-btn_detect = tk.Button(
-    right, text="Detect License Plate",
-    font=FONT_BTN, bg=SUCCESS, fg="black",
-    relief="flat", width=22,
-    command=detect_plate
-)
-btn_detect.pack(pady=10)
+styled_button(right, "Detect Plate", detect_plate).pack(pady=10)
 
-register_btn = tk.Button(
-    right, text="Register Vehicle",
-    font=FONT_BTN, bg=WARNING, fg="black",
-    relief="flat", width=22,
-    state="disabled",
-    command=register_vehicle
-)
-register_btn.pack(pady=10)
-
-status_label = tk.Label(
-    root, text="Waiting for input...",
-    font=FONT_SUB, bg=BG, fg=MUTED
-)
-status_label.pack(pady=15)
+status_label = tk.Label(root, text="Waiting for Image...",
+                        bg=BG, fg=MUTED)
+status_label.pack(pady=12)
 
 root.mainloop()
